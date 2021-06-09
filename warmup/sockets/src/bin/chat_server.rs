@@ -12,13 +12,13 @@ fn acceptor(sockets: Arc<Mutex<SocketList>>, tx: Sender<String>) -> io::Result<(
 
     loop {
         match listener.accept() {
-            Ok((socket, addr)) => {
+            Ok((mut socket, addr)) => {
                 let cloned_sock = socket.try_clone().unwrap();
                 let mut sockets_unlock = sockets.lock().unwrap();
                 sockets_unlock.push(cloned_sock);
                 let tx1 = Sender::clone(&tx);
                 thread::spawn(move || {
-                    receiver(socket, tx1);
+                    receiver(&mut socket, tx1);
                 });
             }
 
@@ -29,21 +29,24 @@ fn acceptor(sockets: Arc<Mutex<SocketList>>, tx: Sender<String>) -> io::Result<(
     }
 }
 
-fn receiver(mut socket: TcpStream, tx: Sender<String>) -> io::Result<()> {
+fn receiver(socket: &mut TcpStream, tx: Sender<String>) -> io::Result<()> {
     loop {
-        let msg = recv_message(socket.try_clone().unwrap()).or_else(|x| {
+        let msg = recv_message(socket).or_else(|x| {
             println!("Receiver Error Message: {:?}", x);
             Err(x)
         })?;
-        tx.send(msg).unwrap();
+
+        if !msg.is_empty() {
+            tx.send(msg).unwrap();
+        }
     }
 }
 
 fn sender(sockets: Arc<Mutex<SocketList>>, rx: Receiver<String>) {
     loop {
         let msg = rx.recv().unwrap();
-        let sockets = sockets.lock().unwrap();
-        for sock in &*sockets {
+        let mut sockets = sockets.lock().unwrap();
+        for sock in &mut *sockets {
             send_message(sock, msg.clone()).or_else(|x| {
                 println!("Sender Error Message: {:?}", x);
                 Err(x)

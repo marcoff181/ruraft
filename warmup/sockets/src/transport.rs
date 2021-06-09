@@ -1,6 +1,6 @@
 use std::io::{self, prelude::*};
 
-pub fn send_message<W, M>(mut writer: W, msg: M) -> io::Result<()>
+pub fn send_message<W, M>(writer: &mut W, msg: M) -> io::Result<()>
 where
     W: Write,
     M: Into<Vec<u8>>,
@@ -14,7 +14,7 @@ where
     Ok(())
 }
 
-pub fn recv_message<R>(mut reader: R) -> io::Result<String>
+pub fn recv_message<R>(reader: &mut R) -> io::Result<String>
 where
     R: Read,
 {
