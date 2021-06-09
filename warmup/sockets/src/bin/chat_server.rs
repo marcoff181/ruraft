@@ -31,17 +31,23 @@ fn acceptor(sockets: Arc<Mutex<SocketList>>, tx: Sender<String>) -> io::Result<(
 
 fn receiver(mut socket: TcpStream, tx: Sender<String>) -> io::Result<()> {
     loop {
-        let msg = recv_message(socket.try_clone().unwrap())?;
+        let msg = recv_message(socket.try_clone().unwrap()).or_else(|x| {
+            println!("Receiver Error Message: {:?}", x);
+            Err(x)
+        })?;
         tx.send(msg).unwrap();
     }
 }
 
-fn sender(sockets: Arc<Mutex<SocketList>>, rx: Receiver<String>) -> io::Result<()> {
+fn sender(sockets: Arc<Mutex<SocketList>>, rx: Receiver<String>) {
     loop {
         let msg = rx.recv().unwrap();
         let sockets = sockets.lock().unwrap();
         for sock in &*sockets {
-            send_message(sock, msg.clone())?;
+            send_message(sock, msg.clone()).or_else(|x| {
+                println!("Sender Error Message: {:?}", x);
+                Err(x)
+            });
         }
     }
 }
