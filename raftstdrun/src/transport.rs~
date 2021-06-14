@@ -1,5 +1,15 @@
 use std::io::{self, prelude::*};
 
+/// Send a message with an arbitrary length
+///
+/// # Examples
+///
+/// ```
+/// # use ::raftmodel::*;
+/// use std::fs::{self, File};
+/// let mut sock = File::create("foo.txt").unwrap();
+/// send_message(&mut sock, "hello").unwrap();
+/// fs::remove_file("foo.txt").unwrap();
 pub fn send_message<W, M>(writer: &mut W, msg: M) -> io::Result<()>
 where
     W: Write,
@@ -14,6 +24,18 @@ where
     Ok(())
 }
 
+/// Receive a message with an arbitrary length
+/// # Examples
+/// ```
+/// # use ::raftmodel::*;
+/// # use std::fs::{self, File};
+/// # let mut sock = File::create("foo.txt").unwrap();
+/// send_message(&mut sock, "hello");
+/// # let mut socket = File::open("foo.txt").unwrap();
+/// let msg = recv_message(&mut socket).unwrap();
+/// assert_eq!(msg, "hello");
+/// # fs::remove_file("foo.txt").unwrap();
+/// ```
 pub fn recv_message<R>(reader: &mut R) -> io::Result<String>
 where
     R: Read,
@@ -36,7 +58,7 @@ mod tests {
     #[test]
     fn test_send_recv() -> io::Result<()> {
         let mut wrt = File::create("foo.txt")?;
-        send_message(&mut wrt, "hello");
+        send_message(&mut wrt, "hello")?;
 
         let mut rd = File::open("foo.txt")?;
         let msg = recv_message(&mut rd).unwrap();

@@ -1,0 +1,21 @@
+pub struct RaftMessage<T>
+where
+    T: Sized + Clone + PartialEq + Eq + Default + Debug,
+{
+    header: RaftMessageHeader,
+    body: RaftMessageBody<T>,
+}
+
+pub struct RaftMessageHeader {
+    msg_id: u128,
+    prev_msg_id: u128,
+    source: u32,
+    dest: u32,
+}
+
+pub enum RaftMessageBody<T>
+where
+    T: Sized + Clone + PartialEq + Eq + Default + Debug,
+{
+    CientRequest { entries: Vec<LogEntry<T>> },
+}

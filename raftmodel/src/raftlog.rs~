@@ -1,0 +1,134 @@
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct LogEntry<T: Sized + Clone + PartialEq + Eq + Default> {
+    term: i128,
+    item: T,
+}
+
+/// Adds one or more entries to the log and returns a True/False value to indicate success.
+///
+/// There are a number of very tricky edge cases in the log implementation that need to be accounted for:
+/// 1. The log is never allowed to have holes in it.
+/// 2. There is a log-continuity condition where every append operation
+/// must verify that the term number of any previous entry matches an
+/// expected value. For example, if appending at `prev_index` 8, the
+/// `prev_term` value must match the value of `log[prev_index].term`. If
+/// there is a mismatch, the operation fails (return `False`).
+/// 3. Special case: Appending log entries at index 0 always works. That's
+/// the start of the log and there are no prior entries.
+/// 4. `append_entries()` is "idempotent."  That means that
+/// `append_entries()` can be called repeatedly with the same arguments
+/// and the end result is always the same.  For example, if you called
+/// `append_entries()` twice in a row to add the same entry at index 10,
+/// it just puts the entry at index 10 and does not result in any data
+/// duplication or corruption.
+/// 5. Calling `append_entries()` with an empty list of entries is
+/// allowed.  In this case, it should report `True` or `False` to indicate
+/// if it would have been legal to add new entries at the specified
+/// position.
+/// 6. If there are already existing entries at the specified log position,
+/// but those entries are from an earlier term, the existing entries and
+/// everything that follows are deleted. The new entries are then
+/// added in their place.  If there are existing
+/// entries from the current term or from a later term, just add new entries in their place.
+pub fn append_entries<T: Sized + Clone + PartialEq + Eq + Default>(
+    log: &mut Vec<LogEntry<T>>,
+    prev_index: i128,
+    prev_term: i128,
+    mut entries: Vec<LogEntry<T>>,
+) -> bool {
+    if prev_index != -1 && prev_index > (log.len() - 1) as i128 {
+        return false;
+    }
+
+    if prev_index != -1 && log[prev_index as usize].term != prev_term {
+        return false;
+    }
+
+    for (i, (x, y)) in entries
+        .iter()
+        .zip(log[(prev_index + 1) as usize..].iter())
+        .enumerate()
+    {
+        if y.term != x.term {
+            log.drain(i..);
+            break;
+        }
+    }
+
+    if entries.len() > log.len() - (prev_index + 1) as usize {
+        log.resize_with(entries.len() + (prev_index + 1) as usize, Default::default);
+    }
+
+    for i in 0..entries.len() {
+        log[(prev_index + 1) as usize + i] = entries.remove(i);
+    }
+    //log[(prev_index + 1) as usize..(prev_index + 1) as usize + entries.len()] = entries[..];
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_append_entries() {
+        let mut log = vec![];
+        // Add the first entry onto an empty log (this should always work)
+        // For the first entry, information about the prior entry is meaningless. The prev_index is -1,
+        // but the prev_term is ignored (there is no prior entry to compare it to).
+        assert!(append_entries(
+            &mut log,
+            -1,
+            -1,
+            vec![LogEntry { term: 1, item: "a" }]
+        ));
+
+        //The log is not allowed to have holes in it.  This operation fails (no entries at [1])
+        assert!(!append_entries(
+            &mut log,
+            1,
+            1,
+            vec![LogEntry { term: 1, item: "c" }]
+        ));
+        assert_eq!(log, vec![LogEntry { term: 1, item: "a" }]);
+
+        // Adding a new entry to the end. It should work.
+        assert!(append_entries(
+            &mut log,
+            0,
+            1,
+            vec![LogEntry { term: 1, item: "b" }]
+        ));
+        assert_eq!(
+            log,
+            vec![
+                LogEntry { term: 1, item: "a" },
+                LogEntry { term: 1, item: "b" },
+            ],
+        );
+
+        // Overwriting an existing entry with the same entry. This should work and not alter other parts of the log
+        assert!(append_entries(
+            &mut log,
+            -1,
+            -1,
+            vec![LogEntry { term: 1, item: "a" }]
+        ));
+        assert_eq!(
+            log,
+            vec![
+                LogEntry { term: 1, item: "a" },
+                LogEntry { term: 1, item: "b" }
+            ]
+        );
+
+        // Overwrite an existing entry with a different entry (different term). This should work and delete all entries afterwards
+        assert!(append_entries(
+            &mut log,
+            -1,
+            -1,
+            vec![LogEntry { term: 2, item: "c" }]
+        ));
+        assert_eq!(log, vec![LogEntry { term: 2, item: "c" }]);
+    }
+}
