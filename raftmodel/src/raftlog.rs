@@ -134,7 +134,9 @@ pub fn append_entries<T: Sized + Clone + PartialEq + Eq + Default + Debug>(
     prev_term: i128,
     mut entries: Vec<LogEntry<T>>,
 ) -> bool {
-    if prev_index != -1 && prev_index > (log.len() - 1) as i128 {
+    dbg!(prev_index);
+    dbg!(log.len());
+    if prev_index != -1 && prev_index > (log.len() as i128 - 1) as i128 {
         return false;
     }
 

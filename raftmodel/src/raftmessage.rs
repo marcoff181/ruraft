@@ -7,6 +7,7 @@ where
     T: Sized + Clone + PartialEq + Eq + Debug + Default,
 {
     ClientRequest {
+        dest: u32,
         value: T,
     },
     BecomeLeader {
@@ -14,7 +15,7 @@ where
         followers: Vec<u32>,
     },
     AppendEntries {
-        src: u32,
+        dest: u32,
         followers: Vec<u32>,
     },
     AppendEntriesRequest {
@@ -30,5 +31,6 @@ where
         dest: u32,
         term: i128,
         success: bool,
+        match_index: i128,
     },
 }
