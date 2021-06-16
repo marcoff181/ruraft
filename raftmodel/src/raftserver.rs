@@ -100,8 +100,14 @@ where
                 continue;
             }
             let nxt = (self.next_index.as_ref().unwrap())[i as usize];
-            let prev_index = nxt - 1;
-            let prev_term = self.log[prev_index].term;
+            //dbg!(nxt);
+            let prev_index: i128 = nxt as i128 - 1;
+            let prev_term: i128 = if prev_index == -1 {
+                -1
+            } else {
+                self.log[prev_index as usize].term
+            };
+            //let prev_term = self.log[prev_index].term;
             let entries = self.log[nxt as usize..].to_vec();
             // dbg!(prev_index);
             // dbg!(prev_term);
@@ -109,7 +115,7 @@ where
                 src: dest,
                 dest: i,
                 term: self.current_term,
-                prev_index: prev_index as i128,
+                prev_index: prev_index,
                 prev_term,
                 entries,
             });
@@ -154,6 +160,13 @@ where
         let mut msgs = vec![];
         if term != self.current_term {
             return msgs;
+        }
+        if !success {
+            if let Some(next_index) = self.next_index.as_mut() {
+                next_index[src as usize] = next_index[src as usize] - 1;
+                let mut responses = self.handle_append_entries(dest, vec![src]);
+                msgs.append(&mut responses);
+            }
         }
 
         msgs
