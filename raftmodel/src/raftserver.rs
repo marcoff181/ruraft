@@ -85,9 +85,8 @@ where
     fn handle_become_leader(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
         println!("{} become Leader", dest);
         self.state = ServerStates::Leader;
-        self.next_index = Some(vec![self.log.len(); followers.len() + 1]);
+        self.next_index = Some(vec![self.log.len(); followers.len() + 2]);
         return self.handle_append_entries(dest, followers);
-        //vec![]
     }
 
     fn handle_append_entries(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
@@ -99,18 +98,14 @@ where
             if follower == dest {
                 continue;
             }
-            let nxt = (self.next_index.as_ref().unwrap())[follower];
-            //dbg!(nxt);
-            let prev_index = nxt - 1;
+            let next = (self.next_index.as_ref().unwrap())[follower];
+            let prev_index = next - 1;
             let prev_term = if prev_index == 0 {
                 0
             } else {
                 self.log[prev_index].term
             };
-            //let prev_term = self.log[prev_index].term;
-            let entries = self.log[nxt..].to_vec();
-            // dbg!(prev_index);
-            // dbg!(prev_term);
+            let entries = self.log[next..].to_vec();
             msgs.push(RaftMessage::AppendEntriesRequest {
                 src: dest,
                 dest: follower,
@@ -134,7 +129,6 @@ where
     ) -> Vec<RaftMessage<T>> {
         let mut msgs = vec![];
         let elen = entries.len();
-        dbg!(prev_index);
 
         let success = append_entries(&mut self.log, prev_index, prev_term, entries);
 
@@ -162,11 +156,10 @@ where
             return msgs;
         }
         if !success {
-            if let Some(next_index) = self.next_index.as_mut() {
-                next_index[src] = next_index[src] - 1;
-                let mut responses = self.handle_append_entries(dest, vec![src]);
-                msgs.append(&mut responses);
-            }
+            let next_index = self.next_index.as_mut().unwrap();
+            next_index[src] = next_index[src] - 1;
+            let mut responses = self.handle_append_entries(dest, vec![src]);
+            msgs.append(&mut responses);
         }
 
         msgs
@@ -200,26 +193,27 @@ mod tests {
     #[test]
     fn test_replicate() {
         let mut servers = vec![
+            RaftServer::new(vec![]),
             RaftServer::new(vec![LogEntry::default(), LogEntry { term: 1, item: "x" }]),
             RaftServer::new(vec![LogEntry::default()]),
         ];
 
         run_message(
             RaftMessage::BecomeLeader {
-                dest: 0,
-                followers: vec![1],
+                dest: 1,
+                followers: vec![2],
             },
             &mut servers,
         );
 
         run_message(
             RaftMessage::AppendEntries {
-                dest: 0,
-                followers: vec![1],
+                dest: 1,
+                followers: vec![2],
             },
             &mut servers,
         );
 
-        assert_eq!(servers[0].log, servers[1].log);
+        assert_eq!(servers[1].log, servers[2].log);
     }
 }
