@@ -19,6 +19,7 @@ where
     current_term: usize,
     next_index: Option<Vec<usize>>,
     match_index: Option<Vec<usize>>,
+    commit_index: usize,
 }
 
 impl<T> RaftServer<T>
@@ -32,6 +33,7 @@ where
             current_term: 1,
             next_index: Option::None,
             match_index: Option::None,
+            commit_index: 0,
         }
     }
 
@@ -86,6 +88,7 @@ where
         println!("{} become Leader", dest);
         self.state = ServerStates::Leader;
         self.next_index = Some(vec![self.log.len(); followers.len() + 2]);
+        self.match_index = Some(vec![0; followers.len() + 2]);
         return self.handle_append_entries(dest, followers);
     }
 
@@ -100,6 +103,9 @@ where
             }
             let next = (self.next_index.as_ref().unwrap())[follower];
             let prev_index = next - 1;
+            dbg!(prev_index);
+            dbg!(self.log.clone());
+            dbg!(self.next_index.clone());
             let prev_term = if prev_index == 0 {
                 0
             } else {
@@ -137,7 +143,7 @@ where
             dest: src,
             term: self.current_term,
             success,
-            match_index: prev_index + elen,
+            match_index: self.log.len() - 1,
         });
 
         msgs
@@ -155,14 +161,32 @@ where
         if term != self.current_term {
             return msgs;
         }
+        let next_index = self.next_index.as_mut().unwrap();
+
         if !success {
-            let next_index = self.next_index.as_mut().unwrap();
             next_index[src] = next_index[src] - 1;
             let mut responses = self.handle_append_entries(dest, vec![src]);
             msgs.append(&mut responses);
+        } else {
+            next_index[src] = match_index + 1;
+            if match_index > self.match_index.as_mut().unwrap()[src] {
+                self.match_index.as_mut().unwrap()[src] = match_index;
+            }
+            self.advance_commit_index(dest);
         }
 
         msgs
+    }
+
+    fn advance_commit_index(&mut self, dest: usize) {
+        let match_index = self.match_index.as_mut().unwrap();
+        match_index.sort_unstable();
+        let mid = (match_index.len() + 1) / 2 as usize;
+        let max_agree_index = match_index[mid];
+        dbg!(max_agree_index);
+        if self.log[max_agree_index].term == self.current_term {
+            self.commit_index = max_agree_index;
+        }
     }
 }
 
@@ -196,12 +220,13 @@ mod tests {
             RaftServer::new(vec![]),
             RaftServer::new(vec![LogEntry::default(), LogEntry { term: 1, item: "x" }]),
             RaftServer::new(vec![LogEntry::default()]),
+            RaftServer::new(vec![LogEntry::default()]),
         ];
 
         run_message(
             RaftMessage::BecomeLeader {
                 dest: 1,
-                followers: vec![2],
+                followers: vec![2, 3],
             },
             &mut servers,
         );
@@ -209,7 +234,7 @@ mod tests {
         run_message(
             RaftMessage::AppendEntries {
                 dest: 1,
-                followers: vec![2],
+                followers: vec![2, 3],
             },
             &mut servers,
         );
