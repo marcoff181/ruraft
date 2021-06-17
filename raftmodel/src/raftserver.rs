@@ -283,8 +283,6 @@ mod tests {
             },
             &mut servers,
         );
-        dbg!(&servers[1].log);
-        dbg!(&servers[2].log);
         assert!(servers.iter().skip(1).all(|x| { x.log == servers[1].log }));
     }
 }
