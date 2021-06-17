@@ -158,8 +158,15 @@ pub fn append_entries<T: Sized + Clone + PartialEq + Eq + Default + Debug>(
     if entries.len() > log.len() - (prev_index + 1) as usize {
         log.resize_with(entries.len() + prev_index + 1, Default::default);
     }
-    for i in 0..entries.len() {
-        log[prev_index + 1 + i] = entries.remove(i);
+    // dbg!(entries.clone());
+    // dbg!(log.clone());
+    // dbg!(prev_index);
+    let mut x = (0..entries.len()).collect::<Vec<usize>>();
+    x.reverse();
+    for i in x.iter() {
+        // dbg!(i);
+        // dbg!(entries.clone());
+        log[prev_index + 1 + i] = entries.pop().unwrap();
     }
     //log[(prev_index + 1) as usize..(prev_index + 1) as usize + entries.len()] = entries[..];
     true

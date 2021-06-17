@@ -103,9 +103,9 @@ where
             }
             let next = (self.next_index.as_ref().unwrap())[follower];
             let prev_index = next - 1;
-            dbg!(prev_index);
-            dbg!(self.log.clone());
-            dbg!(self.next_index.clone());
+            // dbg!(prev_index);
+            // dbg!(self.log.clone());
+            // dbg!(self.next_index.clone());
             let prev_term = if prev_index == 0 {
                 0
             } else {
@@ -183,7 +183,7 @@ where
         match_index.sort_unstable();
         let mid = (match_index.len() + 1) / 2 as usize;
         let max_agree_index = match_index[mid];
-        dbg!(max_agree_index);
+        // dbg!(max_agree_index);
         if self.log[max_agree_index].term == self.current_term {
             self.commit_index = max_agree_index;
         }
@@ -253,6 +253,7 @@ mod tests {
         result
     }
 
+    #[test]
     fn test_figure_6() {
         let mut servers = vec![
             RaftServer::new(vec![LogEntry::default()]),
@@ -266,7 +267,7 @@ mod tests {
         for server in &mut servers {
             server.current_term = 3;
         }
-
+        dbg!("aaa");
         run_message(
             RaftMessage::BecomeLeader {
                 dest: 1,
@@ -282,5 +283,8 @@ mod tests {
             },
             &mut servers,
         );
+        dbg!(&servers[1].log);
+        dbg!(&servers[2].log);
+        assert!(servers.iter().skip(1).all(|x| { x.log == servers[1].log }));
     }
 }
