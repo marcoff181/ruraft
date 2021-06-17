@@ -270,7 +270,15 @@ mod tests {
         run_message(
             RaftMessage::BecomeLeader {
                 dest: 1,
-                followers: (0..6).collect(),
+                followers: (2..6).collect(),
+            },
+            &mut servers,
+        );
+
+        run_message(
+            RaftMessage::AppendEntries {
+                dest: 1,
+                followers: (2..6).collect(),
             },
             &mut servers,
         );
