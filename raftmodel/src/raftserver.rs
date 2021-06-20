@@ -80,7 +80,7 @@ where
         }];
         let prev_index = self.log.len() - 1;
         let prev_term = self.log[prev_index].term;
-        append_entries(&mut self.log, prev_index, prev_term, entries);
+        let success = append_entries(&mut self.log, prev_index, prev_term, entries);
         vec![]
     }
 
@@ -103,9 +103,6 @@ where
             }
             let next = (self.next_index.as_ref().unwrap())[follower];
             let prev_index = next - 1;
-            // dbg!(prev_index);
-            // dbg!(self.log.clone());
-            // dbg!(self.next_index.clone());
             let prev_term = if prev_index == 0 {
                 0
             } else {
@@ -137,13 +134,17 @@ where
         let elen = entries.len();
 
         let success = append_entries(&mut self.log, prev_index, prev_term, entries);
-
+        let match_index = if success {
+            prev_index + elen
+        } else {
+            self.log.len() - 1
+        };
         msgs.push(RaftMessage::AppendEntriesResponse {
             src: dest,
             dest: src,
             term: self.current_term,
             success,
-            match_index: self.log.len() - 1,
+            match_index,
         });
 
         msgs
@@ -183,7 +184,7 @@ where
         match_index.sort_unstable();
         let mid = (match_index.len() + 1) / 2 as usize;
         let max_agree_index = match_index[mid];
-        // dbg!(max_agree_index);
+
         if self.log[max_agree_index].term == self.current_term {
             self.commit_index = max_agree_index;
         }
@@ -267,7 +268,7 @@ mod tests {
         for server in &mut servers {
             server.current_term = 3;
         }
-        dbg!("aaa");
+
         run_message(
             RaftMessage::BecomeLeader {
                 dest: 1,
@@ -283,6 +284,55 @@ mod tests {
             },
             &mut servers,
         );
+
+        // Check all the logs are identical
         assert!(servers.iter().skip(1).all(|x| { x.log == servers[1].log }));
+
+        // After successful replication, the leader should have commited all its entries
+        assert_eq!(servers[1].commit_index, servers[1].log.len() - 1);
+    }
+
+    #[test]
+    fn test_figure_7() {
+        let mut servers = vec![
+            RaftServer::new(vec![LogEntry::default()]),
+            RaftServer::new(make_log(vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6])),
+            RaftServer::new(make_log(vec![1, 1, 1, 4, 4, 5, 5, 6, 6])),
+            RaftServer::new(make_log(vec![1, 1, 1, 4])),
+            RaftServer::new(make_log(vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6, 6])),
+            RaftServer::new(make_log(vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6, 7, 7])),
+            RaftServer::new(make_log(vec![1, 1, 1, 4, 4, 4, 4])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3])),
+        ];
+
+        for server in &mut servers {
+            server.current_term = 8;
+        }
+
+        run_message(
+            RaftMessage::BecomeLeader {
+                dest: 1,
+                followers: (2..8).collect(),
+            },
+            &mut servers,
+        );
+
+        run_message(
+            RaftMessage::ClientRequest {
+                dest: 1,
+                value: "x".to_string(),
+            },
+            &mut servers,
+        );
+
+        run_message(
+            RaftMessage::AppendEntries {
+                dest: 1,
+                followers: (2..8).collect(),
+            },
+            &mut servers,
+        );
+
+        assert!(servers.iter().skip(1).all(|x| { servers[1].log == x.log }));
     }
 }
