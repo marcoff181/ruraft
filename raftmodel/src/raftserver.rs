@@ -380,4 +380,60 @@ mod tests {
         //     dbg!(server.last_applied);
         // }
     }
+
+    #[test]
+    fn test_commit() {
+        let mut servers = vec![
+            RaftServer::new(vec![LogEntry::default()]),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 2])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 2])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 2])),
+        ];
+
+        for server in &mut servers {
+            server.current_term = 2;
+        }
+
+        run_message(
+            RaftMessage::BecomeLeader {
+                dest: 1,
+                followers: vec![2, 3],
+            },
+            &mut servers,
+        );
+
+        run_message(
+            RaftMessage::ClientRequest {
+                dest: 1,
+                value: "x".to_string(),
+            },
+            &mut servers,
+        );
+
+        run_message(
+            RaftMessage::AppendEntries {
+                dest: 1,
+                followers: vec![2, 3],
+            },
+            &mut servers,
+        );
+
+        // The leader should have committed the entry. The followers should not because
+        // they won't learn about the commit index until leader send them another AppendEntries
+        assert_eq!(servers[1].commit_index, 6);
+        assert_eq!(servers[1].last_applied, 6);
+        assert!(servers.iter().skip(2).all(|x| { x.commit_index == 5 }));
+        assert!(servers.iter().skip(2).all(|x| { x.last_applied == 5 }));
+
+        // The followers will commit and apply after leader send another AppendEntries
+        run_message(
+            RaftMessage::AppendEntries {
+                dest: 1,
+                followers: vec![2, 3],
+            },
+            &mut servers,
+        );
+        assert!(servers.iter().skip(2).all(|x| { x.commit_index == 6 }));
+        assert!(servers.iter().skip(2).all(|x| { x.last_applied == 6 }));
+    }
 }
