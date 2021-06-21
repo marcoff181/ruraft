@@ -20,6 +20,7 @@ where
     next_index: Option<Vec<usize>>,
     match_index: Option<Vec<usize>>,
     commit_index: usize,
+    last_applied: usize,
 }
 
 impl<T> RaftServer<T>
@@ -34,6 +35,7 @@ where
             next_index: Option::None,
             match_index: Option::None,
             commit_index: 0,
+            last_applied: 0,
         }
     }
 
@@ -52,10 +54,17 @@ where
                 term,
                 prev_index,
                 prev_term,
+                commit_index,
                 entries,
-            } => {
-                self.handle_append_entries_request(src, dest, term, prev_index, prev_term, entries)
-            }
+            } => self.handle_append_entries_request(
+                src,
+                dest,
+                term,
+                prev_index,
+                prev_term,
+                commit_index,
+                entries,
+            ),
             RaftMessage::AppendEntriesResponse {
                 src,
                 dest,
@@ -74,13 +83,17 @@ where
         if self.state != ServerStates::Leader {
             return vec![];
         }
-        let mut entries = vec![LogEntry {
+        let entries = vec![LogEntry {
             term: self.current_term,
             item: value,
         }];
         let prev_index = self.log.len() - 1;
         let prev_term = self.log[prev_index].term;
         let success = append_entries(&mut self.log, prev_index, prev_term, entries);
+        if success {
+            self.match_index.as_mut().unwrap()[dest] = self.log.len() - 1;
+            self.next_index.as_mut().unwrap()[dest] = self.log.len();
+        }
         vec![]
     }
 
@@ -101,20 +114,21 @@ where
             if follower == dest {
                 continue;
             }
-            let next = (self.next_index.as_ref().unwrap())[follower];
-            let prev_index = next - 1;
+            let next_idx = (self.next_index.as_ref().unwrap())[follower];
+            let prev_index = next_idx - 1;
             let prev_term = if prev_index == 0 {
                 0
             } else {
                 self.log[prev_index].term
             };
-            let entries = self.log[next..].to_vec();
+            let entries = self.log[next_idx..].to_vec();
             msgs.push(RaftMessage::AppendEntriesRequest {
                 src: dest,
                 dest: follower,
                 term: self.current_term,
                 prev_index,
                 prev_term,
+                commit_index: self.commit_index,
                 entries,
             });
         }
@@ -128,11 +142,18 @@ where
         term: usize,
         prev_index: usize,
         prev_term: usize,
+        commit_index: usize,
         entries: Vec<LogEntry<T>>,
     ) -> Vec<RaftMessage<T>> {
         let mut msgs = vec![];
         let elen = entries.len();
-
+        if commit_index > self.commit_index {
+            self.commit_index = commit_index;
+            if self.commit_index > self.last_applied {
+                // To-do: send AppliedEntries message
+                self.last_applied = self.commit_index;
+            }
+        }
         let success = append_entries(&mut self.log, prev_index, prev_term, entries);
         let match_index = if success {
             prev_index + elen
@@ -162,17 +183,18 @@ where
         if term != self.current_term {
             return msgs;
         }
-        let next_index = self.next_index.as_mut().unwrap();
-
+        let next_index_mut = self.next_index.as_mut().unwrap();
+        let match_index_mut = self.match_index.as_mut().unwrap();
         if !success {
-            next_index[src] = next_index[src] - 1;
+            next_index_mut[src] = next_index_mut[src] - 1;
             let mut responses = self.handle_append_entries(dest, vec![src]);
             msgs.append(&mut responses);
         } else {
-            next_index[src] = match_index + 1;
-            if match_index > self.match_index.as_mut().unwrap()[src] {
-                self.match_index.as_mut().unwrap()[src] = match_index;
+            next_index_mut[src] = match_index + 1;
+            if match_index > match_index_mut[src] {
+                match_index_mut[src] = match_index;
             }
+
             self.advance_commit_index(dest);
         }
 
@@ -180,13 +202,17 @@ where
     }
 
     fn advance_commit_index(&mut self, dest: usize) {
-        let match_index = self.match_index.as_mut().unwrap();
-        match_index.sort_unstable();
-        let mid = (match_index.len() + 1) / 2 as usize;
-        let max_agree_index = match_index[mid];
+        let mut match_index_cp = self.match_index.as_mut().unwrap().clone();
 
-        if self.log[max_agree_index].term == self.current_term {
+        match_index_cp.sort_unstable();
+        let mid = match_index_cp.len() / 2 as usize;
+        let max_agree_index = match_index_cp[mid];
+        if self.log[max_agree_index].term >= self.current_term {
             self.commit_index = max_agree_index;
+        }
+        if self.commit_index > self.last_applied {
+            // To-do: send ApplyEntries message
+            self.last_applied = self.commit_index;
         }
     }
 }
@@ -210,7 +236,7 @@ mod tests {
                 | RaftMessage::AppendEntriesResponse { dest, .. } => dest,
             };
             let server = &mut servers[dest as usize];
-            let mut responses = server.handle_message(msg);
+            let responses = server.handle_message(msg);
             messages.append(&mut responses.into_iter().collect());
         }
     }
@@ -308,7 +334,7 @@ mod tests {
         for server in &mut servers {
             server.current_term = 8;
         }
-
+        servers[1].commit_index = 10;
         run_message(
             RaftMessage::BecomeLeader {
                 dest: 1,
@@ -325,6 +351,16 @@ mod tests {
             &mut servers,
         );
 
+        // The first AppendEntries will update leader commit_index
+        run_message(
+            RaftMessage::AppendEntries {
+                dest: 1,
+                followers: (2..8).collect(),
+            },
+            &mut servers,
+        );
+
+        // The second AppendEntries will update all followers commit_index
         run_message(
             RaftMessage::AppendEntries {
                 dest: 1,
@@ -334,5 +370,14 @@ mod tests {
         );
 
         assert!(servers.iter().skip(1).all(|x| { servers[1].log == x.log }));
+        assert_eq!(servers[1].commit_index, servers[1].log.len() - 1);
+        // dbg!(servers[1].match_index.clone());
+        // dbg!(servers[1].next_index.clone());
+        // for server in servers.iter().skip(1) {
+        //     dbg!(server.commit_index);
+        // }
+        // for server in servers.iter().skip(1) {
+        //     dbg!(server.last_applied);
+        // }
     }
 }

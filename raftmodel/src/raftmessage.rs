@@ -24,6 +24,7 @@ where
         term: usize,
         prev_index: usize,
         prev_term: usize,
+        commit_index: usize,
         entries: Vec<LogEntry<T>>,
     },
     AppendEntriesResponse {
