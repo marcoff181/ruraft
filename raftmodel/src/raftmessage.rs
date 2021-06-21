@@ -34,4 +34,17 @@ where
         success: bool,
         match_index: usize,
     },
+    RequestVoteRequest {
+        src: usize,
+        dest: usize,
+        term: usize,
+        last_log_index: usize,
+        last_log_term: usize,
+    },
+    RequestVoteResponse {
+        src: usize,
+        dest: usize,
+        term: usize,
+        vote_granted: bool,
+    },
 }

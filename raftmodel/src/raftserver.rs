@@ -72,8 +72,19 @@ where
                 success,
                 match_index,
             } => self.handle_append_entries_response(src, dest, term, success, match_index),
-            _ => {
-                println!("Nothing");
+            RaftMessage::RequestVoteRequest {
+                src,
+                dest,
+                term,
+                last_log_index,
+                last_log_term,
+            } => self.handle_request_vote(src, dest, term, last_log_index, last_log_term),
+            RaftMessage::RequestVoteResponse {
+                src,
+                dest,
+                term,
+                vote_granted,
+            } => {
                 vec![]
             }
         }
@@ -201,6 +212,21 @@ where
         msgs
     }
 
+    fn handle_request_vote(
+        &mut self,
+        src: usize,
+        dest: usize,
+        term: usize,
+        last_log_index: usize,
+        last_log_term: usize,
+    ) -> Vec<RaftMessage<T>> {
+        let mut msgs = vec![];
+        if self.state != ServerStates::Candidate {
+            return msgs;
+        }
+        msgs
+    }
+
     fn advance_commit_index(&mut self, dest: usize) {
         let mut match_index_cp = self.match_index.as_mut().unwrap().clone();
 
@@ -233,7 +259,9 @@ mod tests {
                 | RaftMessage::BecomeLeader { dest, .. }
                 | RaftMessage::AppendEntries { dest, .. }
                 | RaftMessage::AppendEntriesRequest { dest, .. }
-                | RaftMessage::AppendEntriesResponse { dest, .. } => dest,
+                | RaftMessage::AppendEntriesResponse { dest, .. }
+                | RaftMessage::RequestVoteRequest { dest, .. }
+                | RaftMessage::RequestVoteResponse { dest, .. } => dest,
             };
             let server = &mut servers[dest as usize];
             let responses = server.handle_message(msg);
