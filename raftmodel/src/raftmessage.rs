@@ -34,6 +34,13 @@ where
         success: bool,
         match_index: usize,
     },
+    TimeOut {
+        dest: usize,
+    },
+    RequestVote {
+        dest: usize,
+        followers: Vec<usize>,
+    },
     RequestVoteRequest {
         src: usize,
         dest: usize,

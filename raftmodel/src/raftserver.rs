@@ -1,4 +1,5 @@
 use crate::{append_entries, LogEntry, RaftMessage};
+use std::collections::HashSet;
 use std::default::Default;
 use std::fmt::Debug;
 
@@ -14,13 +15,21 @@ pub struct RaftServer<T>
 where
     T: Sized + Clone + PartialEq + Eq + Debug + Default,
 {
+    // The following attributes are all per server
     log: Vec<LogEntry<T>>,
     state: ServerStates,
     current_term: usize,
-    next_index: Option<Vec<usize>>,
-    match_index: Option<Vec<usize>>,
+    voted_for: usize,
     commit_index: usize,
     last_applied: usize,
+
+    // The following attributes are used only on candidates
+    votes_responded: Option<HashSet<usize>>,
+    votes_granted: Option<HashSet<usize>>,
+
+    // The following attributes are used only on leaders
+    next_index: Option<Vec<usize>>,
+    match_index: Option<Vec<usize>>,
 }
 
 impl<T> RaftServer<T>
@@ -32,10 +41,13 @@ where
             log: log,
             state: ServerStates::Follower,
             current_term: 1,
-            next_index: Option::None,
-            match_index: Option::None,
+            voted_for: 0,
             commit_index: 0,
             last_applied: 0,
+            votes_responded: Option::None,
+            votes_granted: Option::None,
+            next_index: Option::None,
+            match_index: Option::None,
         }
     }
 
@@ -72,13 +84,16 @@ where
                 success,
                 match_index,
             } => self.handle_append_entries_response(src, dest, term, success, match_index),
+            RaftMessage::RequestVote { dest, followers } => {
+                self.handle_request_vote(dest, followers)
+            }
             RaftMessage::RequestVoteRequest {
                 src,
                 dest,
                 term,
                 last_log_index,
                 last_log_term,
-            } => self.handle_request_vote(src, dest, term, last_log_index, last_log_term),
+            } => self.handle_request_vote_request(src, dest, term, last_log_index, last_log_term),
             RaftMessage::RequestVoteResponse {
                 src,
                 dest,
@@ -87,6 +102,7 @@ where
             } => {
                 vec![]
             }
+            RaftMessage::TimeOut { dest } => self.handle_time_out(dest),
         }
     }
 
@@ -212,7 +228,44 @@ where
         msgs
     }
 
-    fn handle_request_vote(
+    fn handle_time_out(&mut self, dest: usize) -> Vec<RaftMessage<T>> {
+        if self.state != ServerStates::Follower || self.state != ServerStates::Candidate {
+            return vec![];
+        }
+        self.current_term = self.current_term + 1;
+        self.voted_for = 0;
+        self.votes_responded = Some(HashSet::new());
+        self.votes_granted = Some(HashSet::new());
+        vec![]
+    }
+
+    fn handle_request_vote(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
+        let mut msgs = vec![];
+        if self.state != ServerStates::Candidate {
+            return msgs;
+        }
+        for follower in followers {
+            if self.votes_responded.as_ref().unwrap().contains(&follower) {
+                continue;
+            }
+            let last_log_index = self.log.len() - 1;
+            let last_log_term = if last_log_index == 0 {
+                0
+            } else {
+                self.log[last_log_index].term
+            };
+            msgs.push(RaftMessage::RequestVoteRequest {
+                src: dest,
+                dest: follower,
+                term: self.current_term,
+                last_log_index: last_log_index,
+                last_log_term: last_log_term,
+            });
+        }
+        msgs
+    }
+
+    fn handle_request_vote_request(
         &mut self,
         src: usize,
         dest: usize,
@@ -221,8 +274,25 @@ where
         last_log_term: usize,
     ) -> Vec<RaftMessage<T>> {
         let mut msgs = vec![];
-        if self.state != ServerStates::Candidate {
-            return msgs;
+        let last_term = if self.log.len() == 0 {
+            0
+        } else {
+            self.log.last().unwrap().term
+        };
+        let log_ok = (last_log_term > last_term)
+            || (last_log_term == last_term && last_log_index > self.log.len() - 1);
+        let grant =
+            (term == self.current_term) && log_ok && (self.voted_for == 0 || self.voted_for == src);
+        if term <= self.current_term {
+            if grant {
+                self.voted_for = src;
+            }
+            msgs.push(RaftMessage::RequestVoteResponse {
+                src: dest,
+                dest: src,
+                term: self.current_term,
+                vote_granted: grant,
+            });
         }
         msgs
     }
@@ -261,7 +331,9 @@ mod tests {
                 | RaftMessage::AppendEntriesRequest { dest, .. }
                 | RaftMessage::AppendEntriesResponse { dest, .. }
                 | RaftMessage::RequestVoteRequest { dest, .. }
-                | RaftMessage::RequestVoteResponse { dest, .. } => dest,
+                | RaftMessage::RequestVoteResponse { dest, .. }
+                | RaftMessage::RequestVote { dest, .. }
+                | RaftMessage::TimeOut { dest, .. } => dest,
             };
             let server = &mut servers[dest as usize];
             let responses = server.handle_message(msg);
