@@ -36,9 +36,6 @@ where
     },
     TimeOut {
         dest: usize,
-    },
-    RequestVote {
-        dest: usize,
         followers: Vec<usize>,
     },
     RequestVoteRequest {

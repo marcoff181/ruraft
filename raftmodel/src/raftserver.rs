@@ -26,6 +26,7 @@ where
     // The following attributes are used only on candidates
     votes_responded: Option<HashSet<usize>>,
     votes_granted: Option<HashSet<usize>>,
+    followers: Option<Vec<usize>>,
 
     // The following attributes are used only on leaders
     next_index: Option<Vec<usize>>,
@@ -46,6 +47,7 @@ where
             last_applied: 0,
             votes_responded: Option::None,
             votes_granted: Option::None,
+            followers: Option::None,
             next_index: Option::None,
             match_index: Option::None,
         }
@@ -68,24 +70,30 @@ where
                 prev_term,
                 commit_index,
                 entries,
-            } => self.handle_append_entries_request(
-                src,
-                dest,
-                term,
-                prev_index,
-                prev_term,
-                commit_index,
-                entries,
-            ),
+            } => {
+                self.update_term(term);
+                self.handle_append_entries_request(
+                    src,
+                    dest,
+                    term,
+                    prev_index,
+                    prev_term,
+                    commit_index,
+                    entries,
+                )
+            }
             RaftMessage::AppendEntriesResponse {
                 src,
                 dest,
                 term,
                 success,
                 match_index,
-            } => self.handle_append_entries_response(src, dest, term, success, match_index),
-            RaftMessage::RequestVote { dest, followers } => {
-                self.handle_request_vote(dest, followers)
+            } => {
+                if term < self.current_term {
+                    return vec![];
+                }
+                self.update_term(term);
+                self.handle_append_entries_response(src, dest, term, success, match_index)
             }
             RaftMessage::RequestVoteRequest {
                 src,
@@ -93,16 +101,23 @@ where
                 term,
                 last_log_index,
                 last_log_term,
-            } => self.handle_request_vote_request(src, dest, term, last_log_index, last_log_term),
+            } => {
+                self.update_term(term);
+                self.handle_request_vote_request(src, dest, term, last_log_index, last_log_term)
+            }
             RaftMessage::RequestVoteResponse {
                 src,
                 dest,
                 term,
                 vote_granted,
             } => {
-                vec![]
+                if term < self.current_term {
+                    return vec![];
+                }
+                self.update_term(term);
+                self.handle_request_vote_response(src, dest, term, vote_granted)
             }
-            RaftMessage::TimeOut { dest } => self.handle_time_out(dest),
+            RaftMessage::TimeOut { dest, followers } => self.handle_time_out(dest, followers),
         }
     }
 
@@ -173,6 +188,25 @@ where
         entries: Vec<LogEntry<T>>,
     ) -> Vec<RaftMessage<T>> {
         let mut msgs = vec![];
+        if term > self.current_term {
+            return msgs;
+        }
+        // Reject request
+        if term < self.current_term {
+            msgs.push(RaftMessage::AppendEntriesResponse {
+                src: dest,
+                dest: src,
+                term: self.current_term,
+                success: false,
+                match_index: 0,
+            });
+            return msgs;
+        }
+        // Return to follower state
+        if term == self.current_term && self.state == ServerStates::Candidate {
+            self.state = ServerStates::Follower;
+            return msgs;
+        }
         let elen = entries.len();
         if commit_index > self.commit_index {
             self.commit_index = commit_index;
@@ -228,18 +262,19 @@ where
         msgs
     }
 
-    fn handle_time_out(&mut self, dest: usize) -> Vec<RaftMessage<T>> {
+    fn handle_time_out(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
         if self.state != ServerStates::Follower || self.state != ServerStates::Candidate {
             return vec![];
         }
         self.current_term = self.current_term + 1;
-        self.voted_for = 0;
-        self.votes_responded = Some(HashSet::new());
-        self.votes_granted = Some(HashSet::new());
-        vec![]
+        self.voted_for = dest;
+        self.votes_responded = Some(vec![dest].iter().cloned().collect());
+        self.votes_granted = Some(vec![dest].iter().cloned().collect());
+        self.followers = Some(followers.clone());
+        self.request_vote(dest, followers)
     }
 
-    fn handle_request_vote(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
+    fn request_vote(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
         let mut msgs = vec![];
         if self.state != ServerStates::Candidate {
             return msgs;
@@ -274,7 +309,7 @@ where
         last_log_term: usize,
     ) -> Vec<RaftMessage<T>> {
         let mut msgs = vec![];
-        let last_term = if self.log.len() == 0 {
+        let last_term = if self.log.len() <= 1 {
             0
         } else {
             self.log.last().unwrap().term
@@ -295,6 +330,36 @@ where
             });
         }
         msgs
+    }
+
+    fn handle_request_vote_response(
+        &mut self,
+        src: usize,
+        dest: usize,
+        term: usize,
+        vote_granted: bool,
+    ) -> Vec<RaftMessage<T>> {
+        if term != self.current_term || self.state != ServerStates::Candidate {
+            return vec![];
+        }
+        self.votes_responded.as_mut().unwrap().insert(src);
+        if vote_granted {
+            self.votes_granted.as_mut().unwrap().insert(src);
+        }
+        let quorum = self.followers.as_ref().unwrap().len() + 2 / 2;
+        let followers = self.followers.as_ref().unwrap().clone();
+        if self.votes_granted.as_ref().unwrap().len() >= quorum {
+            self.handle_become_leader(dest, followers);
+        }
+        vec![]
+    }
+
+    fn update_term(&mut self, mterm: usize) {
+        if mterm > self.current_term {
+            self.current_term = mterm;
+            self.state = ServerStates::Follower;
+            self.voted_for = 0;
+        }
     }
 
     fn advance_commit_index(&mut self, dest: usize) {
@@ -332,7 +397,6 @@ mod tests {
                 | RaftMessage::AppendEntriesResponse { dest, .. }
                 | RaftMessage::RequestVoteRequest { dest, .. }
                 | RaftMessage::RequestVoteResponse { dest, .. }
-                | RaftMessage::RequestVote { dest, .. }
                 | RaftMessage::TimeOut { dest, .. } => dest,
             };
             let server = &mut servers[dest as usize];
@@ -535,5 +599,31 @@ mod tests {
         );
         assert!(servers.iter().skip(2).all(|x| { x.commit_index == 6 }));
         assert!(servers.iter().skip(2).all(|x| { x.last_applied == 6 }));
+    }
+
+    #[test]
+    fn test_figure_6_election() {
+        let mut servers = vec![
+            RaftServer::new(vec![LogEntry::default()]),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
+            RaftServer::new(make_log(vec![1, 1])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3])),
+        ];
+
+        for server in &mut servers {
+            server.current_term = 3;
+        }
+
+        // Test: let server 1 time out to become a candidate. It should win the election with all votes
+        run_message(
+            RaftMessage::TimeOut {
+                dest: 1,
+                followers: (2..6).collect(),
+            },
+            &mut servers,
+        );
+        assert_eq!(servers[1].state, ServerStates::Leader);
     }
 }
