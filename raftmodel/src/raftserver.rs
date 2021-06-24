@@ -4,7 +4,7 @@ use std::default::Default;
 use std::fmt::Debug;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum ServerStates {
+pub enum ServerState {
     Leader,
     Candidate,
     Follower,
@@ -17,7 +17,7 @@ where
 {
     // The following attributes are all per server
     log: Vec<LogEntry<T>>,
-    state: ServerStates,
+    state: ServerState,
     current_term: usize,
     voted_for: usize,
     commit_index: usize,
@@ -40,7 +40,7 @@ where
     pub fn new(log: Vec<LogEntry<T>>) -> RaftServer<T> {
         RaftServer {
             log: log,
-            state: ServerStates::Follower,
+            state: ServerState::Follower,
             current_term: 1,
             voted_for: 0,
             commit_index: 0,
@@ -122,7 +122,7 @@ where
     }
 
     fn handle_client_request(&mut self, dest: usize, value: T) -> Vec<RaftMessage<T>> {
-        if self.state != ServerStates::Leader {
+        if self.state != ServerState::Leader {
             return vec![];
         }
         let entries = vec![LogEntry {
@@ -141,14 +141,14 @@ where
 
     fn handle_become_leader(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
         println!("{} become Leader", dest);
-        self.state = ServerStates::Leader;
+        self.state = ServerState::Leader;
         self.next_index = Some(vec![self.log.len(); followers.len() + 2]);
         self.match_index = Some(vec![0; followers.len() + 2]);
         return self.handle_append_entries(dest, followers);
     }
 
     fn handle_append_entries(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
-        if self.state != ServerStates::Leader {
+        if self.state != ServerState::Leader {
             return vec![];
         }
         let mut msgs = vec![];
@@ -203,8 +203,8 @@ where
             return msgs;
         }
         // Return to follower state
-        if term == self.current_term && self.state == ServerStates::Candidate {
-            self.state = ServerStates::Follower;
+        if term == self.current_term && self.state == ServerState::Candidate {
+            self.state = ServerState::Follower;
             return msgs;
         }
         let elen = entries.len();
@@ -263,9 +263,10 @@ where
     }
 
     fn handle_time_out(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
-        if self.state != ServerStates::Follower || self.state != ServerStates::Candidate {
+        if self.state != ServerState::Follower && self.state != ServerState::Candidate {
             return vec![];
         }
+        self.state = ServerState::Candidate;
         self.current_term = self.current_term + 1;
         self.voted_for = dest;
         self.votes_responded = Some(vec![dest].iter().cloned().collect());
@@ -276,7 +277,7 @@ where
 
     fn request_vote(&mut self, dest: usize, followers: Vec<usize>) -> Vec<RaftMessage<T>> {
         let mut msgs = vec![];
-        if self.state != ServerStates::Candidate {
+        if self.state != ServerState::Candidate {
             return msgs;
         }
         for follower in followers {
@@ -296,6 +297,7 @@ where
                 last_log_index: last_log_index,
                 last_log_term: last_log_term,
             });
+            // dbg!(msgs.clone());
         }
         msgs
     }
@@ -315,7 +317,7 @@ where
             self.log.last().unwrap().term
         };
         let log_ok = (last_log_term > last_term)
-            || (last_log_term == last_term && last_log_index > self.log.len() - 1);
+            || (last_log_term == last_term && last_log_index >= self.log.len() - 1);
         let grant =
             (term == self.current_term) && log_ok && (self.voted_for == 0 || self.voted_for == src);
         if term <= self.current_term {
@@ -329,6 +331,7 @@ where
                 vote_granted: grant,
             });
         }
+        // dbg!(msgs.clone());
         msgs
     }
 
@@ -339,14 +342,23 @@ where
         term: usize,
         vote_granted: bool,
     ) -> Vec<RaftMessage<T>> {
-        if term != self.current_term || self.state != ServerStates::Candidate {
+        // dbg!(src);
+        // dbg!(vote_granted);
+        // dbg!(term);
+        // dbg!(self.current_term);
+        // dbg!(self.state.clone());
+        if term != self.current_term {
+            //|| self.state != ServerState::Candidate {
             return vec![];
         }
         self.votes_responded.as_mut().unwrap().insert(src);
         if vote_granted {
             self.votes_granted.as_mut().unwrap().insert(src);
         }
-        let quorum = self.followers.as_ref().unwrap().len() + 2 / 2;
+        // dbg!(self.votes_responded.clone());
+        // dbg!(self.votes_granted.clone());
+        let quorum = (self.followers.as_ref().unwrap().len() + 2) / 2;
+        // dbg!(quorum);
         let followers = self.followers.as_ref().unwrap().clone();
         if self.votes_granted.as_ref().unwrap().len() >= quorum {
             self.handle_become_leader(dest, followers);
@@ -357,7 +369,7 @@ where
     fn update_term(&mut self, mterm: usize) {
         if mterm > self.current_term {
             self.current_term = mterm;
-            self.state = ServerStates::Follower;
+            self.state = ServerState::Follower;
             self.voted_for = 0;
         }
     }
@@ -624,6 +636,11 @@ mod tests {
             },
             &mut servers,
         );
-        assert_eq!(servers[1].state, ServerStates::Leader);
+        assert_eq!(servers[1].state, ServerState::Leader);
+        // dbg!(servers[1].votes_granted.as_ref().unwrap().clone());
+        assert_eq!(
+            servers[1].votes_granted.as_ref().unwrap().clone(),
+            (1..6).collect::<HashSet<usize>>()
+        );
     }
 }
