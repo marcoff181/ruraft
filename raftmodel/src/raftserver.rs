@@ -642,5 +642,61 @@ mod tests {
             servers[1].votes_granted.as_ref().unwrap().clone(),
             (1..6).collect::<HashSet<usize>>()
         );
+
+        // Test: server 2 will time out to become the candidate. It will lose the election and get only one vote
+        let mut servers = vec![
+            RaftServer::new(vec![LogEntry::default()]),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
+            RaftServer::new(make_log(vec![1, 1])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3])),
+        ];
+
+        for server in &mut servers {
+            server.current_term = 3;
+        }
+
+        run_message(
+            RaftMessage::TimeOut {
+                dest: 2,
+                followers: vec![1, 3, 4, 5].iter().cloned().collect(),
+            },
+            &mut servers,
+        );
+        assert_eq!(servers[2].state, ServerState::Candidate);
+        // dbg!(servers[1].votes_granted.as_ref().unwrap().clone());
+        assert_eq!(
+            servers[2].votes_granted.as_ref().unwrap().clone(),
+            vec![2, 4].iter().cloned().collect::<HashSet<usize>>()
+        );
+
+        // Test: server 5 will time out to become the candidate and will the election, but only get 3 votes
+        let mut servers = vec![
+            RaftServer::new(vec![LogEntry::default()]),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
+            RaftServer::new(make_log(vec![1, 1])),
+            RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3])),
+        ];
+
+        for server in &mut servers {
+            server.current_term = 3;
+        }
+
+        run_message(
+            RaftMessage::TimeOut {
+                dest: 5,
+                followers: (1..5).collect(),
+            },
+            &mut servers,
+        );
+        assert_eq!(servers[5].state, ServerState::Leader);
+        // dbg!(servers[1].votes_granted.as_ref().unwrap().clone());
+        assert_eq!(
+            servers[5].votes_granted.as_ref().unwrap().clone(),
+            vec![2, 4, 5].iter().cloned().collect::<HashSet<usize>>()
+        );
     }
 }
