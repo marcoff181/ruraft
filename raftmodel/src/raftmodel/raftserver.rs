@@ -131,6 +131,7 @@ where
         }];
         let prev_index = self.log.len() - 1;
         let prev_term = self.log[prev_index].term;
+        // Call raftlog::append_entries
         let success = append_entries(&mut self.log, prev_index, prev_term, entries);
         if success {
             self.match_index.as_mut().unwrap()[dest] = self.log.len() - 1;
