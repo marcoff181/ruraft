@@ -28,26 +28,84 @@
 //! raft messages being passed between servers in the network which drives the log entries replicated from the leader to the followers.
 //! ```
 //! use crate::raftmodel::*;
+//! use std::collections::{VecDeque, HashSet};
+//! use std::fmt::Debug;
+//! fn run_message<T>(initial_message: RaftMessage<T>, servers: &mut Vec<RaftServer<T>>)
+//! where
+//!     T: Sized + Clone + PartialEq + Eq + Debug + Default,
+//! {
+//!     let mut messages = VecDeque::new();
+//!     messages.push_back(initial_message);
+//!     while let Some(msg) = messages.pop_front() {
+//!         let dest = match msg {
+//!             RaftMessage::ClientRequest { dest, .. }
+//!             | RaftMessage::BecomeLeader { dest, .. }
+//!             | RaftMessage::AppendEntries { dest, .. }
+//!             | RaftMessage::AppendEntriesRequest { dest, .. }
+//!             | RaftMessage::AppendEntriesResponse { dest, .. }
+//!             | RaftMessage::RequestVoteRequest { dest, .. }
+//!             | RaftMessage::RequestVoteResponse { dest, .. }
+//!             | RaftMessage::TimeOut { dest, .. } => dest,
+//!         };
+//!         let server = &mut servers[dest as usize];
+//!         let responses = server.handle_message(msg);
+//!         messages.append(&mut responses.into_iter().collect());
+//!     }
+//! }
 //!
-//! fn make_log(terms: Vec<usize>) -> Vec<LogEntry<String>> {
-//!    let mut result: Vec<LogEntry<String>> = vec![LogEntry::default()];
-//!    for x in terms {
-//!        result.push(LogEntry {
-//!            term: x,
-//!            item: "a".to_string(),
-//!        });
-//!    }
-//!    result
-//!}
+//!
+//!
+//! let log = create_empty_log();
 //!
 //! let mut servers = vec![
-//!    RaftServer::new(vec![LogEntry::default()]),
-//!    RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
-//!    RaftServer::new(make_log(vec![1, 1, 1, 2, 3])),
-//!    RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3, 3])),
-//!    RaftServer::new(make_log(vec![1, 1])),
-//!    RaftServer::new(make_log(vec![1, 1, 1, 2, 3, 3, 3])),
+//!    RaftServer::new(log.clone()),
+//!    RaftServer::new(log.clone()),
+//!    RaftServer::new(log.clone()),
+//!    RaftServer::new(log.clone()),
+//!    RaftServer::new(log.clone()),
+//!    RaftServer::new(log.clone()),
 //! ];
+//!
+//! // Let server 1 time out to become a candidate. It should win the election with all votes
+//! run_message(
+//!     RaftMessage::TimeOut {
+//!         dest: 1,
+//!         followers: (2..6).collect(),
+//!     },
+//!     &mut servers,
+//! );
+//! assert_eq!(*servers[1].server_state(), ServerState::Leader);
+//!
+//! // Client append a new entry to the leader's log
+//! run_message(
+//!    RaftMessage::ClientRequest{
+//!        dest:1,
+//!        value: "x".to_string(),
+//!    },
+//!    &mut servers,
+//! );
+//!
+//! // The first AppendEntries will update leader commit_index
+//! run_message(
+//!     RaftMessage::AppendEntries {
+//!         dest: 1,
+//!         followers: (2..6).collect(),
+//!     },
+//!     &mut servers,
+//! );
+//!
+//! // The second AppendEntries will update all followers commit_index
+//! run_message(
+//!     RaftMessage::AppendEntries {
+//!         dest: 1,
+//!         followers: (2..6).collect(),
+//!     },
+//!     &mut servers,
+//! );
+//!
+//! assert!(servers.iter().skip(1).all(|x| { servers[1].log() == x.log() }));
+//!
+//!
 //! ```
 
 mod raftmodel;

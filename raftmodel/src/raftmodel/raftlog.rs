@@ -7,6 +7,13 @@ pub struct LogEntry<T: Sized + Clone + PartialEq + Eq + Default + Debug> {
     pub item: T,
 }
 
+pub fn create_empty_log<T>() -> Vec<LogEntry<T>>
+where
+    T: Sized + Clone + PartialEq + Eq + Default + Debug,
+{
+    vec![LogEntry::default()]
+}
+
 /// Adds one or more entries to the log and returns a true/false value to indicate success.
 /// The log starts from index 1. The entry at index 0 is meaningless.
 /// The term starts from 1.

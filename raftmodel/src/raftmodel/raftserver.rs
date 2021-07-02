@@ -53,6 +53,14 @@ where
         }
     }
 
+    pub fn server_state(&self) -> &ServerState {
+        return &self.state;
+    }
+
+    pub fn log(&self) -> &Vec<LogEntry<T>> {
+        return &self.log;
+    }
+
     pub fn handle_message(&mut self, msg: RaftMessage<T>) -> Vec<RaftMessage<T>> {
         match msg {
             RaftMessage::ClientRequest { dest, value } => self.handle_client_request(dest, value),
