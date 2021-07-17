@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::default::Default;
 use std::fmt::Debug;
 
+/// The server states
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ServerState {
     Leader,
@@ -10,6 +11,8 @@ pub enum ServerState {
     Follower,
 }
 
+/// A single Raft server.
+/// A server only communicates via messages
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RaftServer<T>
 where
@@ -53,14 +56,44 @@ where
         }
     }
 
+    /// Returns the state of server as an immutable reference
     pub fn server_state(&self) -> &ServerState {
         return &self.state;
     }
 
+    /// Returns an immutable reference to the server's log
     pub fn log(&self) -> &Vec<LogEntry<T>> {
         return &self.log;
     }
 
+    /// This is the only public API to interact with the server
+    /// It takes an input message, dispatch it to some internal handlers based on the message type,
+    /// and returns a vector of messages as output.
+    /// It's up to the caller to decide what to do with the output messages
+    /// # Example
+    /// ```
+    /// use crate::raftmodel::*;
+    /// let log = create_empty_log::<String>();
+    ///
+    /// let mut servers = vec![
+    ///   RaftServer::new(log.clone()),
+    ///   RaftServer::new(log.clone()),
+    ///   RaftServer::new(log.clone()),
+    ///   RaftServer::new(log.clone()),
+    ///   RaftServer::new(log.clone()),
+    ///   RaftServer::new(log.clone()),
+    /// ];
+    ///
+    /// let message =
+    ///     RaftMessage::TimeOut {
+    ///         dest: 1,
+    ///         followers: (2..6).collect(),
+    ///     };
+    /// let server = &mut servers[1];
+    /// let responses = server.handle_message(message);
+    /// assert!(matches!(&responses[0], RaftMessage::RequestVoteRequest{..}));
+    /// assert_eq!(responses.len(), 4);
+    /// ```
     pub fn handle_message(&mut self, msg: RaftMessage<T>) -> Vec<RaftMessage<T>> {
         match msg {
             RaftMessage::ClientRequest { dest, value } => self.handle_client_request(dest, value),

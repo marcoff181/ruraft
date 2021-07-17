@@ -5,7 +5,7 @@ use std::io::{self, prelude::*};
 /// # Examples
 ///
 /// ```
-/// # use ::raftmodel::*;
+/// # use ::raftio::*;
 /// use std::fs::{self, File};
 /// let mut sock = File::create("foo.txt").unwrap();
 /// send_message(&mut sock, "hello").unwrap();
@@ -27,7 +27,7 @@ where
 /// Receive a message with an arbitrary length
 /// # Examples
 /// ```
-/// # use ::raftmodel::*;
+/// # use ::raftio::*;
 /// # use std::fs::{self, File};
 /// # let mut sock = File::create("foo.txt").unwrap();
 /// send_message(&mut sock, "hello");
