@@ -1,9 +1,10 @@
 [package]
 name = "raftmodel"
 version = "0.1.0"
-authors = ["Peter Young <yang.piyi@gmail.com>"]
+authors = ["Peter Yang <yang.piyi@gmail.com>"]
 edition = "2018"
-
+description = "A logic model for the raft consensus algorithm"
+license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
