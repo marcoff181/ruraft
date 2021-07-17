@@ -1,4 +1,0 @@
-struct LogEntry<T: Sized> {
-    term: u128,
-    item: T,
-}

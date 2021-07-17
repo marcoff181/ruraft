@@ -7,6 +7,21 @@ pub struct LogEntry<T: Sized + Clone + PartialEq + Eq + Default + Debug> {
     pub item: T,
 }
 
+/// Create an empty log and returns to the caller
+/// Because the log index starts with 1, the value at index 0 of the log is prefilled with a default value of T
+/// # Example
+/// ```
+/// use crate::raftmodel::*;
+/// let log = create_empty_log::<String>();
+/// assert_eq!(log.len(), 1);
+/// ```
+pub fn create_empty_log<T>() -> Vec<LogEntry<T>>
+where
+    T: Sized + Clone + PartialEq + Eq + Default + Debug,
+{
+    vec![LogEntry::default()]
+}
+
 /// Adds one or more entries to the log and returns a true/false value to indicate success.
 /// The log starts from index 1. The entry at index 0 is meaningless.
 /// The term starts from 1.

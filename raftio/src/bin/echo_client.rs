@@ -1,6 +1,6 @@
 //#![feature(slice_fill)]
 
-use ::raftmodel::*;
+use ::raftio::*;
 //use std::io::prelude::*;
 use std::net::TcpStream;
 

@@ -1,6 +1,7 @@
 use crate::LogEntry;
 use std::fmt::Debug;
 
+/// The message which Raft server used to communicate between each other
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftMessage<T>
 where
