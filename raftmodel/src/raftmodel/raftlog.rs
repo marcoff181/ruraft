@@ -1,4 +1,8 @@
 use std::fmt::Debug;
+use vstd::prelude::*;
+
+verus!{
+
 
 /// Each log entry consists of a term number and an item
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -6,6 +10,16 @@ pub struct LogEntry<T: Sized + Clone + PartialEq + Eq + Default + Debug> {
     pub term: usize,
     pub item: T,
 }
+
+impl<T: Sized + Clone + PartialEq + Eq + Default + Debug> LogEntry<T> {
+    pub fn default() -> Self {
+        LogEntry {
+            term: 0,
+            item: T::default(),
+        }
+    }
+}
+
 
 /// Create an empty log and returns to the caller
 /// Because the log index starts with 1, the value at index 0 of the log is prefilled with a default value of T
@@ -20,6 +34,7 @@ where
     T: Sized + Clone + PartialEq + Eq + Default + Debug,
 {
     vec![LogEntry::default()]
+}
 }
 
 /// Adds one or more entries to the log and returns a true/false value to indicate success.
@@ -149,7 +164,6 @@ where
 ///            ]
 ///        );
 /// ```
-
 pub fn append_entries<T: Sized + Clone + PartialEq + Eq + Default + Debug>(
     log: &mut Vec<LogEntry<T>>,
     prev_index: usize,

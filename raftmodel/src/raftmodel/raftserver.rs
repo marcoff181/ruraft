@@ -3,6 +3,9 @@ use std::collections::HashSet;
 use std::default::Default;
 use std::fmt::Debug;
 
+use vstd::prelude::*;
+
+verus!{
 /// The server states
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ServerState {
@@ -35,6 +38,7 @@ where
     next_index: Option<Vec<usize>>,
     match_index: Option<Vec<usize>>,
 }
+
 
 impl<T> RaftServer<T>
 where
@@ -431,6 +435,8 @@ where
         }
     }
 }
+
+}// verus!
 
 #[cfg(test)]
 mod tests {
