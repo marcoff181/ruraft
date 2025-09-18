@@ -2,6 +2,7 @@ use crate::{append_entries, LogEntry, RaftMessage};
 use std::collections::HashSet;
 use std::default::Default;
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use vstd::prelude::*;
 
@@ -30,13 +31,13 @@ where
     last_applied: usize,
 
     // The following attributes are used only on candidates
-    votes_responded: Option<HashSet<usize>>,
-    votes_granted: Option<HashSet<usize>>,
-    followers: Option<Vec<usize>>,
+    votes_responded: HashSet<usize>,
+    votes_granted: HashSet<usize>,
+    followers: Vec<usize>,
 
     // The following attributes are used only on leaders
-    next_index: Option<Vec<usize>>,
-    match_index: Option<Vec<usize>>,
+    next_index: Vec<usize>,
+    match_index: Vec<usize>,
 }
 
 
@@ -52,11 +53,11 @@ where
             voted_for: 0,
             commit_index: 0,
             last_applied: 0,
-            votes_responded: Option::None,
-            votes_granted: Option::None,
-            followers: Option::None,
-            next_index: Option::None,
-            match_index: Option::None,
+            votes_responded: HashSet::new(),
+            votes_granted: HashSet::new(),
+            followers: Vec::new(),
+            next_index: Vec::new(),
+            match_index: Vec::new(),
         }
     }
 
@@ -178,10 +179,24 @@ where
         let prev_term = self.log[prev_index].term;
         // Call raftlog::append_entries
         let success = append_entries(&mut self.log, prev_index, prev_term, entries);
+
+        // if success {
+        //     self.match_index.as_mut().log.len() - 1;
+        //     self.next_index.as_mut().log.len();
+        // }
+        // ---v
         if success {
-            self.match_index.as_mut().unwrap()[dest] = self.log.len() - 1;
-            self.next_index.as_mut().unwrap()[dest] = self.log.len();
+            let mut match_index = self.match_index.take();
+            let mut next_index = self.next_index.take();
+
+            let log_len = self.log.len();
+            match_index[dest] = log_len - 1;
+            next_index[dest] = log_len;
+
+            self.match_index = Some(match_index);
+            self.next_index = Some(next_index);
         }
+
         vec![]
     }
 
@@ -202,14 +217,21 @@ where
             if follower == dest {
                 continue;
             }
-            let next_idx = (self.next_index.as_ref().unwrap())[follower];
+            let next_idx = (self.next_index.as_ref())[follower];
             let prev_index = next_idx - 1;
             let prev_term = if prev_index == 0 {
                 0
             } else {
                 self.log[prev_index].term
             };
-            let entries = self.log[next_idx..].to_vec();
+            // let entries = self.log[next_idx..].to_vec();
+            // ---v
+            let mut entries = Vec::new();
+            let mut i = next_idx;
+            while i < self.log.len() {
+                entries.push(self.log[i].clone());
+                i += 1;
+            }
             msgs.push(RaftMessage::AppendEntriesRequest {
                 src: dest,
                 dest: follower,
@@ -290,16 +312,24 @@ where
         if term != self.current_term {
             return msgs;
         }
-        let next_index_mut = self.next_index.as_mut().unwrap();
-        let match_index_mut = self.match_index.as_mut().unwrap();
+        // let next_index_mut = self.next_index.as_mut();
+        // let match_index_mut = self.match_index.as_mut();
+        // ---v
+        let mut next_index_mut = self.next_index.clone();
+        let mut match_index_mut = self.match_index.clone();
         if !success {
             next_index_mut[src] = next_index_mut[src] - 1;
+            // ---v
+            self.next_index = Some(next_index_mut);
+
             let mut responses = self.handle_append_entries(dest, vec![src]);
             msgs.append(&mut responses);
         } else {
             next_index_mut[src] = match_index + 1;
             if match_index > match_index_mut[src] {
                 match_index_mut[src] = match_index;
+                // ---v
+                self.match_index = Some(match_index_mut);
             }
 
             self.advance_commit_index(dest);
@@ -327,7 +357,7 @@ where
             return msgs;
         }
         for follower in followers {
-            if self.votes_responded.as_ref().unwrap().contains(&follower) {
+            if self.votes_responded.as_ref().contains(&follower) {
                 continue;
             }
             let last_log_index = self.log.len() - 1;
@@ -360,7 +390,7 @@ where
         let last_term = if self.log.len() <= 1 {
             0
         } else {
-            self.log.last().unwrap().term
+            self.log.last().term
         };
         let log_ok = (last_log_term > last_term)
             || (last_log_term == last_term && last_log_index >= self.log.len() - 1);
@@ -397,16 +427,16 @@ where
             //|| self.state != ServerState::Candidate {
             return vec![];
         }
-        self.votes_responded.as_mut().unwrap().insert(src);
+        self.votes_responded.as_mut().insert(src);
         if vote_granted {
-            self.votes_granted.as_mut().unwrap().insert(src);
+            self.votes_granted.as_mut().insert(src);
         }
         // dbg!(self.votes_responded.clone());
         // dbg!(self.votes_granted.clone());
-        let quorum = (self.followers.as_ref().unwrap().len() + 2) / 2;
+        let quorum = (self.followers.as_ref().len() + 2) / 2;
         // dbg!(quorum);
-        let followers = self.followers.as_ref().unwrap().clone();
-        if self.votes_granted.as_ref().unwrap().len() >= quorum {
+        let followers = self.followers.as_ref().clone();
+        if self.votes_granted.as_ref().len() >= quorum {
             self.handle_become_leader(dest, followers);
         }
         vec![]
@@ -421,7 +451,7 @@ where
     }
 
     fn advance_commit_index(&mut self, dest: usize) {
-        let mut match_index_cp = self.match_index.as_mut().unwrap().clone();
+        let mut match_index_cp = self.match_index.as_mut().clone();
 
         match_index_cp.sort_unstable();
         let mid = match_index_cp.len() / 2 as usize;
@@ -685,9 +715,9 @@ mod tests {
             &mut servers,
         );
         assert_eq!(servers[1].state, ServerState::Leader);
-        // dbg!(servers[1].votes_granted.as_ref().unwrap().clone());
+        // dbg!(servers[1].votes_granted.as_ref().clone());
         assert_eq!(
-            servers[1].votes_granted.as_ref().unwrap().clone(),
+            servers[1].votes_granted.as_ref().clone(),
             (1..6).collect::<HashSet<usize>>()
         );
 
@@ -713,9 +743,9 @@ mod tests {
             &mut servers,
         );
         assert_eq!(servers[2].state, ServerState::Candidate);
-        // dbg!(servers[1].votes_granted.as_ref().unwrap().clone());
+        // dbg!(servers[1].votes_granted.as_ref().clone());
         assert_eq!(
-            servers[2].votes_granted.as_ref().unwrap().clone(),
+            servers[2].votes_granted.as_ref().clone(),
             vec![2, 4].iter().cloned().collect::<HashSet<usize>>()
         );
 
@@ -741,9 +771,9 @@ mod tests {
             &mut servers,
         );
         assert_eq!(servers[5].state, ServerState::Leader);
-        // dbg!(servers[1].votes_granted.as_ref().unwrap().clone());
+        // dbg!(servers[1].votes_granted.as_ref().clone());
         assert_eq!(
-            servers[5].votes_granted.as_ref().unwrap().clone(),
+            servers[5].votes_granted.as_ref().clone(),
             vec![2, 4, 5].iter().cloned().collect::<HashSet<usize>>()
         );
     }
